@@ -1,3 +1,6 @@
+NOTE: The below text is for the original version (logstash-codec-avro), it has not yet been updated for this forked (and currently crippled) version yet.
+
+
 # Logstash Plugin
 
 [![Build

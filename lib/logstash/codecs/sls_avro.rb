@@ -82,6 +82,8 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   # Size in bytes of the schema id. Up to four (4) bytes.
   config :schema_id_size, :validate => :number, :default => 4, :required => false
 
+  config :flatten, :validate => :boolean, :default => false, :required => false
+
   public
   def register
     @schema_list = { }
@@ -105,16 +107,67 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     return if avro_schema == nil
 
     avro_data = data[@schema_id_size+1..-1]
-    #avro_data = data[5..-1]
     datum = StringIO.new(avro_data)
     decoder = Avro::IO::BinaryDecoder.new(datum)
     datum_reader = Avro::IO::DatumReader.new(avro_schema)
     parsed = datum_reader.read(decoder)
 
     root = {}
-    parsed.each{|k, v| root[k] = v}
 
-    yield LogStash::Event.new(root)
+    # This is a very specific flattening and should not be in here.
+    # Need to figure out how to do the same (splitting up into multiple events) in a filter instead.
+    if @flatten
+
+      #if fields.include?(k)
+
+      data = {}
+      #fields = ["gauges", "counters", "histograms", "meters", "timers"]
+      parsed.each { |k,v|
+        if v.is_a?(Hash) || v.is_a?(Array)
+          data[k] = v
+        else
+          root[k] = v
+        end
+      }
+
+      #root["data"] = data;
+
+      data.each { |k,v|                         # For each type (gauges, counter, ...) do:
+        if v.is_a? Array                        # Is it an Array?
+          v.each { |x|                          # For each element in the Array do:
+            if x.is_a? Hash                     # Is it a Hash?
+              if x.key?("name")                 # Does it have "name" key?
+                name = x["name"]                # Copy and fix the name.
+                name.gsub! ".", "_"
+                x.delete("name")                # Delete the "name" key.
+                event = root.clone              # Create a new "event" with all the root content.
+                event["es_subindex"] = k
+                x.each { |key,value|            # For each remaining key|value do:
+                  event[name+"_"+key] = value
+                }
+                yield LogStash::Event.new(event)
+              end
+            end
+          }
+        elsif v.is_a? Hash                      # Is it a Hash?
+          v.each { |name,hash|
+            if hash.is_a? Hash
+              name.gsub! ".", "_"               # Fix the name (elasticsearch does not like dots).
+              event = root.clone
+              event["es_subindex"] = k
+              hash.each { |key,value|
+                event[name+"_"+key] = value
+              }
+              yield LogStash::Event.new(event)
+            end
+          }
+        end
+      }
+    else
+      parsed.each{|k,v| root[k] = v}
+      yield LogStash::Event.new(root)
+    end
+
   end
 
   #public

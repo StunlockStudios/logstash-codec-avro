@@ -90,17 +90,30 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   public
   def decode(data)
 
+    #data = payload.bytes.to_a
+
+    #puts "New Message Received!"
     magic = data.getbyte(0)
-    return unless magic == @magic_byte
-    @schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
+    #puts "MAGIC BYTE: #{magic}"
+    return unless magic == 0 || magic == 255
+    #@schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
 
     # A bit messy. Maybe just support schema_id as a four (4) byte integer.
-    schema_id = -1
-    schema_id = data.getbyte(1)                     if @schema_id_size > 0
-    schema_id = schema_id | (data.getbyte(2) << 8)  if @schema_id_size > 1
-    schema_id = schema_id | (data.getbyte(3) << 16) if @schema_id_size > 2
-    schema_id = schema_id | (data.getbyte(4) << 24) if @schema_id_size > 3
+    #schema_id = -1
+    #schema_id = data.getbyte(1)                     if @schema_id_size > 0
+    #schema_id = schema_id | (data.getbyte(2) << 8)  if @schema_id_size > 1
+    #schema_id = schema_id | (data.getbyte(3) << 16) if @schema_id_size > 2
+    #schema_id = schema_id | (data.getbyte(4) << 24) if @schema_id_size > 3
 
+    index = 1
+    schema_id = -1
+    if magic == 0
+      schema_id = data.getbyte(index + 0) | (data.getbyte(index + 1) << 8) | (data.getbyte(index + 2) << 16) | (data.getbyte(index + 3) << 24)
+    else
+      schema_id = data.getbyte(index + 3) | (data.getbyte(index + 2) << 8) | (data.getbyte(index + 1) << 16) | (data.getbyte(index + 0) << 24)
+    end
+
+    #puts "SCHEMA ID: #{schema_id}"
     avro_schema = get_schema(schema_id)
     return if avro_schema == nil
 

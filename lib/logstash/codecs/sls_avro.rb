@@ -82,6 +82,9 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   # Size in bytes of the schema id. Up to four (4) bytes.
   config :schema_id_size, :validate => :number, :default => 4, :required => false
 
+  # Used for extra debug output and stuff.
+  config :debug_mode, :validate => :boolean, :default => false, :required => false
+
   public
   def register
     @schema_list = { }
@@ -92,9 +95,9 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
 
     #data = payload.bytes.to_a
 
-    #puts "New Message Received!"
+    puts "New Message Received!" if @debug_mode
     magic = data.getbyte(0)
-    #puts "MAGIC BYTE: #{magic}"
+    puts "MAGIC BYTE: #{magic}" if @debug_mode
     return unless magic == 0 || magic == 255
     #@schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
 
@@ -107,13 +110,19 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
 
     index = 1
     schema_id = -1
+    b0 = data.getbyte(index + 0)
+    b1 = data.getbyte(index + 1)
+    b2 = data.getbyte(index + 2)
+    b3 = data.getbyte(index + 3)
+    puts "b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
+
     if magic == 0
-      schema_id = data.getbyte(index + 0) | (data.getbyte(index + 1) << 8) | (data.getbyte(index + 2) << 16) | (data.getbyte(index + 3) << 24)
+      schema_id = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
     else
-      schema_id = data.getbyte(index + 3) | (data.getbyte(index + 2) << 8) | (data.getbyte(index + 1) << 16) | (data.getbyte(index + 0) << 24)
+      schema_id = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
     end
 
-    #puts "SCHEMA ID: #{schema_id}"
+    puts "SCHEMA ID: #{schema_id}" if @debug_mode
     avro_schema = get_schema(schema_id)
     return if avro_schema == nil
 

@@ -96,9 +96,12 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     #data = payload.bytes.to_a
 
     puts "New Message Received!" if @debug_mode
-    magic = data.getbyte(0)
+    #magic = data.getbyte(0)
+    datum = StringIO.new(data)
+    magic = datum.read(1).unpack("C")[0]
     puts "MAGIC BYTE: #{magic}" if @debug_mode
-    return unless magic == 0 || magic == 255
+    puts "Unexpected Magic Byte!" if magic != 0 && magic != 255 && @debug_mode
+    return unless @debug_mode || (magic == 0 || magic == 255)
     #@schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
 
     # A bit messy. Maybe just support schema_id as a four (4) byte integer.
@@ -108,30 +111,64 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     #schema_id = schema_id | (data.getbyte(3) << 16) if @schema_id_size > 2
     #schema_id = schema_id | (data.getbyte(4) << 24) if @schema_id_size > 3
 
-    index = 1
     schema_id = -1
-    b0 = data.getbyte(index + 0)
-    b1 = data.getbyte(index + 1)
-    b2 = data.getbyte(index + 2)
-    b3 = data.getbyte(index + 3)
-    puts "b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
 
     if magic == 0
-      schema_id = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
-    else
-      schema_id = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+      schema_id = datum.read(4).unpack("I>")[0]
+    elsif magic == 255
+      schema_id = datum.read(4).unpack("I<")[0]
     end
+    puts "Schema ID: #{schema_id}" if @debug_mode
 
-    puts "SCHEMA ID: #{schema_id}" if @debug_mode
+    #index = 1
+    #schema_id = -1
+    #b0 = data.getbyte(index + 0)
+    #b1 = data.getbyte(index + 1)
+    #b2 = data.getbyte(index + 2)
+    #b3 = data.getbyte(index + 3)
+    #puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
+
+    #if @debug_mode
+    #  puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}"
+    #  id1 = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
+    #  id2 = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    #  puts "   Big Endian: #{id1}"
+    #  puts "Little Endian: #{id2}"
+
+    #  if magic == 239
+    #    puts("")
+    #    puts(data)
+    #    puts("")
+    #  end
+    #end
+
+
+    #if magic == 0
+    #  puts "Constructing SCHEMA ID: Big Endian" if @debug_mode
+    #  schema_id = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
+    #elsif magic == 255
+    #  puts "Constructing SCHEMA ID: Little Endian" if @debug_mode
+    #  schema_id = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    #end
+
+    #puts "SCHEMA ID: #{schema_id}" if @debug_mode
+
+    puts "Exiting due to Unexpected Schema ID!" if schema_id < 0
+    return if schema_id < 0
+
     avro_schema = get_schema(schema_id)
     return if avro_schema == nil
 
-    avro_data = data[@schema_id_size+1..-1]
-    datum = StringIO.new(avro_data)
+    puts "GOT non-NULL SCHEMA!" if @debug_mode
+
+
+    #avro_data = data[@schema_id_size+1..-1]
+    #datum = StringIO.new(avro_data)
     decoder = Avro::IO::BinaryDecoder.new(datum)
     datum_reader = Avro::IO::DatumReader.new(avro_schema)
     parsed = datum_reader.read(decoder)
 
+    puts "About to YIELD new Event!" if @debug_mode
     yield LogStash::Event.new(parsed)
   end
 

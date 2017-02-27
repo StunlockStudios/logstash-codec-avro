@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
 
-  # Just a test change.
+  # Just another test change.
 
   s.name            = 'logstash-codec-sls_avro'
   s.version         = '1.0.0'

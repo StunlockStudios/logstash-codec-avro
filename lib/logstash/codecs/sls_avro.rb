@@ -5,6 +5,7 @@ require "logstash/codecs/base"
 require "logstash/event"
 require "logstash/timestamp"
 require "logstash/util"
+require "logstash/util/charset"
 require "net/http"
 require "json"
 
@@ -77,10 +78,10 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   config :schema_registry, :validate => :string, :required => true
 
   # A byte identifier at the top/beginning of the blob.
-  config :magic_byte, :validate => :number, :default => 255, :required => false
+  #config :magic_byte, :validate => :number, :default => 255, :required => false
 
   # Size in bytes of the schema id. Up to four (4) bytes.
-  config :schema_id_size, :validate => :number, :default => 4, :required => false
+  #config :schema_id_size, :validate => :number, :default => 4, :required => false
 
   # Used for extra debug output and stuff.
   config :debug_mode, :validate => :boolean, :default => false, :required => false
@@ -88,20 +89,39 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   public
   def register
     @schema_list = { }
+    @converter = LogStash::Util::Charset.new("UTF-8")
+    @converter.logger = @logger
   end # def register
 
   public
   def decode(data)
 
     #data = payload.bytes.to_a
+    #data = @converter.convert(data)
 
     puts "New Message Received!" if @debug_mode
     #magic = data.getbyte(0)
+    #puts "MAGIC BYTE: #{magic}"
+    #puts data.unpack('H*').first
+    #enc = data.encoding
+    #puts "Encoding: #{enc}"
+    #puts ""
+
+    #b0 = data.getbyte(1)
+    #b1 = data.getbyte(2)
+    #b2 = data.getbyte(3)
+    #b3 = data.getbyte(4)
+    #puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
+    #return
+
     datum = StringIO.new(data)
     magic = datum.read(1).unpack("C")[0]
-    puts "MAGIC BYTE: #{magic}" if @debug_mode
-    puts "Unexpected Magic Byte!" if magic != 0 && magic != 255 && @debug_mode
-    return unless @debug_mode || (magic == 0 || magic == 255)
+    puts "MAGIC BYTE (1): #{magic}" if @debug_mode
+    #return
+
+    #puts "Unexpected Magic Byte!" if magic != 0 && magic != 255 && @debug_mode
+    #return unless @debug_mode || (magic == 0 || magic == 255)
+    return unless (magic == 0 || magic == 255)
     #@schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
 
     # A bit messy. Maybe just support schema_id as a four (4) byte integer.
@@ -116,9 +136,11 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     if magic == 0
       schema_id = datum.read(4).unpack("I>")[0]
     elsif magic == 255
+    #else
       schema_id = datum.read(4).unpack("I<")[0]
     end
     puts "Schema ID: #{schema_id}" if @debug_mode
+    #return
 
     #index = 1
     #schema_id = -1
@@ -127,6 +149,7 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     #b2 = data.getbyte(index + 2)
     #b3 = data.getbyte(index + 3)
     #puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
+
 
     #if @debug_mode
     #  puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}"
@@ -153,7 +176,7 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
 
     #puts "SCHEMA ID: #{schema_id}" if @debug_mode
 
-    puts "Exiting due to Unexpected Schema ID!" if schema_id < 0
+    puts "Exiting due to Unexpected Schema ID!" if schema_id < 0 && @debug_mode
     return if schema_id < 0
 
     avro_schema = get_schema(schema_id)
@@ -165,10 +188,17 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
     #avro_data = data[@schema_id_size+1..-1]
     #datum = StringIO.new(avro_data)
     decoder = Avro::IO::BinaryDecoder.new(datum)
-    datum_reader = Avro::IO::DatumReader.new(avro_schema)
-    parsed = datum_reader.read(decoder)
+    #puts "decoder == nil" if decoder == nil
+    #puts "A"
 
-    puts "About to YIELD new Event!" if @debug_mode
+    datum_reader = Avro::IO::DatumReader.new(avro_schema)
+    #puts "datum_reader == nil" if datum_reader == nil
+    #puts "B"
+
+    parsed = datum_reader.read(decoder)
+    #puts "C"
+
+    #puts "About to YIELD new Event!" if @debug_mode
     yield LogStash::Event.new(parsed)
   end
 

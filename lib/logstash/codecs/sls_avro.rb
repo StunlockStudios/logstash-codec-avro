@@ -5,35 +5,12 @@ require "logstash/codecs/base"
 require "logstash/event"
 require "logstash/timestamp"
 require "logstash/util"
-require "logstash/util/charset"
 require "net/http"
 require "json"
 
 # Documentation and rest of functionality will follow, but for now this will only
 # decode/deserialize a serialized avro record prefixed by a magic byte followed by
 # the avro schema id encoded as a four (4) byte integer.
-
-# Possibly will allow via configuration to function either in old or new way.
-
-
-# Read serialized Avro records as Logstash events
-#
-# This plugin is used to serialize Logstash events as 
-# Avro datums, as well as deserializing Avro datums into 
-# Logstash events.
-#
-# ==== Encoding
-# 
-# This codec is for serializing individual Logstash events 
-# as Avro datums that are Avro binary blobs. It does not encode 
-# Logstash events into an Avro file.
-#
-#
-# ==== Decoding
-#
-# This codec is for deserializing individual Avro records. It is not for reading
-# Avro files. Avro files have a unique format that must be handled upon input.
-#
 #
 # ==== Usage
 # Example usage with Kafka input.
@@ -42,10 +19,9 @@ require "json"
 # ----------------------------------
 # input {
 #   kafka {
-#     codec => {
-#       avro => {
-#         schema_uri => "/tmp/schema.avsc"
-#       }
+#     codec => sls_avro {
+#       debug_mode => false
+#       schema_registry => "http://127.0.0.1:8181/schemas/ids/"
 #     }
 #   }
 # }
@@ -60,28 +36,9 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
 
   config_name "sls_avro"
 
-
-  # schema path to fetch the schema from.
-  # This can be a 'http' or 'file' scheme URI
-  # example:
-  #
-  # * http - `http://example.com/schema.avsc`
-  # * file - `/path/to/schema.avsc`
-  #config :schema_uri, :validate => :string, :required => true
-
-  #def open_and_read(uri_string)
-  #  open(uri_string).read
-  #end
-
   # URL of where to fetch the Avro schema. The schema id will be appended directly at
   # the end of the URL so make sure to get it right with ending slashes et cetera.
   config :schema_registry, :validate => :string, :required => true
-
-  # A byte identifier at the top/beginning of the blob.
-  #config :magic_byte, :validate => :number, :default => 255, :required => false
-
-  # Size in bytes of the schema id. Up to four (4) bytes.
-  #config :schema_id_size, :validate => :number, :default => 4, :required => false
 
   # Used for extra debug output and stuff.
   config :debug_mode, :validate => :boolean, :default => false, :required => false
@@ -89,116 +46,38 @@ class LogStash::Codecs::Avro < LogStash::Codecs::Base
   public
   def register
     @schema_list = { }
-    @converter = LogStash::Util::Charset.new("UTF-8")
-    @converter.logger = @logger
   end # def register
 
   public
   def decode(data)
 
-    #data = payload.bytes.to_a
-    #data = @converter.convert(data)
-
     puts "New Message Received!" if @debug_mode
-    #magic = data.getbyte(0)
-    #puts "MAGIC BYTE: #{magic}"
-    #puts data.unpack('H*').first
-    #enc = data.encoding
-    #puts "Encoding: #{enc}"
-    #puts ""
-
-    #b0 = data.getbyte(1)
-    #b1 = data.getbyte(2)
-    #b2 = data.getbyte(3)
-    #b3 = data.getbyte(4)
-    #puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
-    #return
 
     datum = StringIO.new(data)
     magic = datum.read(1).unpack("C")[0]
     puts "MAGIC BYTE (1): #{magic}" if @debug_mode
-    #return
-
-    #puts "Unexpected Magic Byte!" if magic != 0 && magic != 255 && @debug_mode
-    #return unless @debug_mode || (magic == 0 || magic == 255)
     return unless (magic == 0 || magic == 255)
-    #@schema_id_size = 4 if @schema_id_size < 0 || @schema_id_size > 4
-
-    # A bit messy. Maybe just support schema_id as a four (4) byte integer.
-    #schema_id = -1
-    #schema_id = data.getbyte(1)                     if @schema_id_size > 0
-    #schema_id = schema_id | (data.getbyte(2) << 8)  if @schema_id_size > 1
-    #schema_id = schema_id | (data.getbyte(3) << 16) if @schema_id_size > 2
-    #schema_id = schema_id | (data.getbyte(4) << 24) if @schema_id_size > 3
 
     schema_id = -1
 
     if magic == 0
       schema_id = datum.read(4).unpack("I>")[0]
     elsif magic == 255
-    #else
       schema_id = datum.read(4).unpack("I<")[0]
     end
     puts "Schema ID: #{schema_id}" if @debug_mode
-    #return
 
-    #index = 1
-    #schema_id = -1
-    #b0 = data.getbyte(index + 0)
-    #b1 = data.getbyte(index + 1)
-    #b2 = data.getbyte(index + 2)
-    #b3 = data.getbyte(index + 3)
-    #puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}" if @debug_mode
-
-
-    #if @debug_mode
-    #  puts "[SCHEMA ID Bytes] b0: #{b0}, b1: #{b1}, b2: #{b2}, b3: #{b3}"
-    #  id1 = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
-    #  id2 = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-    #  puts "   Big Endian: #{id1}"
-    #  puts "Little Endian: #{id2}"
-
-    #  if magic == 239
-    #    puts("")
-    #    puts(data)
-    #    puts("")
-    #  end
-    #end
-
-
-    #if magic == 0
-    #  puts "Constructing SCHEMA ID: Big Endian" if @debug_mode
-    #  schema_id = b3 | (b2 << 8) | (b1 << 16) | (b0 << 24)
-    #elsif magic == 255
-    #  puts "Constructing SCHEMA ID: Little Endian" if @debug_mode
-    #  schema_id = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-    #end
-
-    #puts "SCHEMA ID: #{schema_id}" if @debug_mode
 
     puts "Exiting due to Unexpected Schema ID!" if schema_id < 0 && @debug_mode
     return if schema_id < 0
 
     avro_schema = get_schema(schema_id)
+    puts "GOT NULL SCHEMA!" if avro_Schema = nil && @debug_mode
     return if avro_schema == nil
 
-    puts "GOT non-NULL SCHEMA!" if @debug_mode
-
-
-    #avro_data = data[@schema_id_size+1..-1]
-    #datum = StringIO.new(avro_data)
     decoder = Avro::IO::BinaryDecoder.new(datum)
-    #puts "decoder == nil" if decoder == nil
-    #puts "A"
-
     datum_reader = Avro::IO::DatumReader.new(avro_schema)
-    #puts "datum_reader == nil" if datum_reader == nil
-    #puts "B"
-
     parsed = datum_reader.read(decoder)
-    #puts "C"
-
-    #puts "About to YIELD new Event!" if @debug_mode
     yield LogStash::Event.new(parsed)
   end
 
